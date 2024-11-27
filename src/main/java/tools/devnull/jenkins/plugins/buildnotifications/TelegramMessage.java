@@ -26,116 +26,132 @@
  */
 package tools.devnull.jenkins.plugins.buildnotifications;
 
-import org.apache.hc.client5.http.fluent.Request;
-import org.apache.hc.core5.http.ContentType;
-import org.apache.hc.core5.net.URIBuilder;
+
+import org.apache.http.HttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.HttpHost;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
+
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.auth.UsernamePasswordCredentials;
 
 import java.io.IOException;
-import java.util.logging.Logger;
+import java.util.List;
+import java.util.ArrayList;
 
-/**
- * A class that represents a Telegram message
- * Updated to use Apache HttpComponents HttpClient 5.x
- */
 public class TelegramMessage implements Message {
 
-  private static final Logger LOGGER = Logger.getLogger(TelegramMessage.class.getName());
 
-  private final String botToken;
-  private final String chatIds;
-  private final String tProxy;
-  private final String tProxyUsr;
-  private final String tProxyPwd;
+    private final String botToken;
+    private final String chatIds;
+    private final String tProxy;
+    private final String tProxyUsr;
+    private final String tProxyPwd;
+    
 
-  private String extraMessage;
-  private String content;
-  private String title;
-  private String url;
-  private String urlTitle;
+    private String extraMessage;
+    private String content;
+    private String title;
+    private String url;
+    private String urlTitle;
 
-  public TelegramMessage(String botToken, String chatIds, String extraMessage,
-                         String tProxy, String tProxyUsr, String tProxyPwd) {
-    LOGGER.info("TelegramMessage()");
-    this.botToken = botToken;
-    this.chatIds = chatIds;
-    this.extraMessage = extraMessage;
-    this.tProxy = tProxy;
-    this.tProxyUsr = tProxyUsr;
-    this.tProxyPwd = tProxyPwd;
-  }
 
-  public TelegramMessage(String botToken, String chatIds, String extraMessage) {
-    this(botToken, chatIds, extraMessage, null, null, null);
-  }
-
-  @Override
-  public void setContent(String content) {
-    this.content = content;
-  }
-
-  @Override
-  public void setTitle(String title) {
-    this.title = title;
-  }
-
-  @Override
-  public void setUrl(String url, String title) {
-    this.url = url;
-    this.urlTitle = title;
-  }
-
-  @Override
-  public void highPriority() {
-    // Not possible with Telegram
-  }
-
-  @Override
-  public void normalPriority() {
-    // Not possible with Telegram
-  }
-
-  @Override
-  public void lowPriority() {
-    // Not possible with Telegram
-  }
-
-  public boolean send() {
-    String[] ids = chatIds.split("\\s*,\\s*");
-    boolean result = true;
-
-    for (String chatId : ids) {
-      try {
-        LOGGER.info("Sending [" + getMessage() + "] to chat_id=[" + chatId + "]");
-        URIBuilder uriBuilder = new URIBuilder(String.format("https://api.telegram.org/bot%s/sendMessage", botToken));
-        uriBuilder.addParameter("chat_id", chatId);
-        uriBuilder.addParameter("text", getMessage());
-
-        String response = Request.post(uriBuilder.build())
-                .connectTimeout(3000) // Optional: Set connection timeout
-                .responseTimeout(5000) // Optional: Set response timeout
-                .execute()
-                .returnContent()
-                .asString();
-
-        LOGGER.info("Response: " + response);
-      } catch (IOException e) {
-        result = false;
-        LOGGER.warning("Error while sending notification: " + e.getMessage());
-      }
+    public TelegramMessage(String botToken, String chatIds, String extraMessage, String tProxy, String tProxyUsr, String tProxyPwd) {
+        this.botToken = botToken;
+        this.chatIds = chatIds;
+        this.extraMessage = extraMessage;
+        this.tProxy = tProxy;
+        this.tProxyUsr = tProxyUsr;
+        this.tProxyPwd = tProxyPwd;
     }
 
-    return result;
-  }
+    public TelegramMessage(String botToken, String chatIds, String extraMessage) {
+        this(botToken, chatIds, extraMessage, null, null, null);
+    }
 
-  private String getMessage() {
-    return String.format(
+    @Override
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    @Override
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    @Override
+    public void setUrl(String url, String title) {
+        this.url = url;
+        this.urlTitle = title;
+    }
+
+    @Override
+    public void highPriority() {
+        // Not possible with Telegram
+    }
+
+    @Override
+    public void normalPriority() {
+        // Not possible with Telegram
+    }
+
+    @Override
+    public void lowPriority() {
+        // Not possible with Telegram
+    }
+
+    public boolean send() {
+        String[] ids = chatIds.split("\\s*,\\s*");
+
+        // Set proxy if required
+        HttpHost proxy = null;
+        if (tProxy != null) {
+            String[] split = tProxy.split(":");
+            if (split.length == 2) {
+                proxy = new HttpHost(split[0], Integer.parseInt(split[1]));
+            }
+        }
+
+        // Create HttpClient with proxy if necessary
+        RequestConfig config = RequestConfig.custom().setProxy(proxy).build();
+        CloseableHttpClient client = HttpClients.custom().setDefaultRequestConfig(config).build();
+
+        for (String chatId : ids) {
+            HttpPost post = new HttpPost(String.format("https://api.telegram.org/bot%s/sendMessage", botToken));
+            List<BasicNameValuePair> params = new ArrayList<>();
+            params.add(new BasicNameValuePair("chat_id", chatId));
+            params.add(new BasicNameValuePair("text", getMessage()));
+            try {
+                post.setEntity(new UrlEncodedFormEntity(params));
+
+                HttpResponse response = client.execute(post);
+                System.out.println("Response: " + response.getStatusLine());
+                String responseString = EntityUtils.toString(response.getEntity());
+                System.out.println("Response Body: " + responseString);
+            } catch (IOException e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private String getMessage() {
+        return String.format(
             "%s%n%n%s%n%n%s <%s>%n%n%s",
-            title,
-            content,
-            urlTitle,
-            url,
-            extraMessage
-    );
-  }
-
+                title,
+                content,
+                urlTitle,
+                url,
+                extraMessage
+        );
+    }
 }
